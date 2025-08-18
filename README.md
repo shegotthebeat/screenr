@@ -7,8 +7,6 @@ Simple web application that uses Python and the Playwright library to create a f
 screenr/
 ├── screenr.py  # The main application file
 ├── requirements.txt
-      Flask[async]
-      playwright==1.45.0
 ├── static/
 │   └── style.css
 └── README.md
