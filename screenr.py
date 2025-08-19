@@ -12,39 +12,42 @@
 # -------------------------------------------------------------
 
 import asyncio
-from playwright.async_api import async_playwright
-from flask import Flask, render_template_string, request, send_file, abort
-import os
+from pathlib import Path
 from datetime import datetime
+
+from playwright.async_api import async_playwright
+from flask import Flask, render_template_string, request, url_for, send_from_directory, abort
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 
-# Configuration - you can move this to a config file
-UPLOAD_DIRECTORY = "/mnt/storage/uploads"
+# Upload location: external SSD
+UPLOAD_DIRECTORY = Path("/mnt/storage/uploads")
+UPLOAD_DIRECTORY.mkdir(parents=True, exist_ok=True)
 
+
+# -------------------------------------------------------------
+# Async helper: save webpage screenshot
+# -------------------------------------------------------------
 async def save_webpage_as_image(url: str, output_path: str):
-    """
-    Launches a headless browser, navigates to a URL, and saves a full-page screenshot.
-
-    Args:
-        url (str): The URL of the webpage to capture.
-        output_path (str): The filename and path to save the screenshot.
-    """
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             context = await browser.new_context()
             page = await context.new_page()
             await page.set_viewport_size({"width": 1920, "height": 1080})
-            await page.goto(url, wait_until="networkidle")
+            await page.goto(url, wait_until="networkidle", timeout=30000)
             await page.screenshot(path=output_path, full_page=True)
             await browser.close()
             return True
     except Exception as e:
-        print(f"An error occurred: {e}")
+        print(f"[ERROR] Screenshot failed: {e!r}")
         return False
 
-# HTML content for the main page
+
+# -------------------------------------------------------------
+# HTML template
+# -------------------------------------------------------------
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
@@ -94,63 +97,63 @@ HTML_TEMPLATE = """
 </html>
 """
 
+
+# -------------------------------------------------------------
+# Routes
+# -------------------------------------------------------------
 @app.route("/", methods=["GET"])
 def home():
-    """Renders the main page with the URL input form."""
     return render_template_string(HTML_TEMPLATE, message=None, image_url=None)
+
 
 @app.route("/archive", methods=["POST"])
 async def archive():
-    """
-    Handles the URL submission, triggers the screenshot process,
-    and returns a success or error message.
-    """
-    url = request.form.get("url")
-    if not url:
-        return render_template_string(HTML_TEMPLATE, message="Please provide a valid URL.", message_type="error")
+    url = request.form.get("url", "").strip()
+    if not (url.startswith("http://") or url.startswith("https://")):
+        return render_template_string(HTML_TEMPLATE, message="Provide a valid http(s) URL.", message_type="error")
 
-    # Generate a unique filename based on the current timestamp.
-    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    filename = f"screenr_{timestamp}.png"
-    output_path = os.path.join(UPLOAD_DIRECTORY, filename)
+    # Timestamped, sanitized filename
+    filename = secure_filename(f"screenr_{datetime.now():%Y%m%d%H%M%S}.png")
+    output_path = UPLOAD_DIRECTORY / filename
 
-    # Ensure the upload directory exists.
-    os.makedirs(UPLOAD_DIRECTORY, exist_ok=True)
+    print(f"[INFO] Attempting to save screenshot → {output_path}")
 
-    success = await save_webpage_as_image(url, output_path)
+    success = await save_webpage_as_image(url, str(output_path))
 
-    if success:
+    if success and output_path.exists():
         message = f"Successfully archived {url}."
-        # Create a clean URL path for the image
-        image_url = f"/uploads/{filename}"
+        image_url = url_for("serve_upload", filename=filename)
+        print(f"[INFO] Saved OK: {output_path}")
         return render_template_string(HTML_TEMPLATE, message=message, message_type="success", image_url=image_url)
     else:
-        message = f"Failed to archive {url}. Please check the URL and try again."
+        message = f"Failed to archive {url}. Check logs."
+        print(f"[ERROR] Save failed for {url} → {output_path}")
         return render_template_string(HTML_TEMPLATE, message=message, message_type="error")
 
-@app.route("/uploads/<filename>")
-def serve_upload(filename):
-    """Serves uploaded files from the external storage directory."""
-    try:
-        # Security: Prevent directory traversal attacks
-        if '..' in filename or filename.startswith('/'):
-            abort(403)
-        
-        file_path = os.path.join(UPLOAD_DIRECTORY, filename)
-        
-        # Check if file exists
-        if not os.path.exists(file_path):
-            abort(404)
-            
-        return send_file(file_path)
-    except Exception as e:
-        print(f"Error serving file {filename}: {e}")
-        abort(500)
 
+@app.route("/uploads/<path:filename>")
+def serve_upload(filename):
+    try:
+        return send_from_directory(UPLOAD_DIRECTORY, filename)
+    except FileNotFoundError:
+        abort(404)
+
+
+# Debug endpoint: check write perms from inside Flask
+@app.route("/permcheck")
+def permcheck():
+    try:
+        testfile = UPLOAD_DIRECTORY / ".flask_perm_ok"
+        with open(testfile, "w") as f:
+            f.write("ok")
+        testfile.unlink(missing_ok=True)
+        return "WRITE_OK", 200
+    except Exception as e:
+        return f"WRITE_FAIL: {e!r}", 500
+
+
+# -------------------------------------------------------------
+# Entrypoint
+# -------------------------------------------------------------
 if __name__ == "__main__":
-    # Ensure upload directory exists on startup
-    os.makedirs(UPLOAD_DIRECTORY, exist_ok=True)
-    
-    # Note: Flask's built-in server is not for production.
-    # For production, use a WSGI server like Gunicorn or Waitress.
     app.run(host="0.0.0.0", port=8002, debug=True)
