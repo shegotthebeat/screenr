@@ -123,8 +123,8 @@ async def archive():
 
     # Generate a unique filename based on the current timestamp.
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    filename = f"screenshot_{timestamp}.png"
-    output_path = os.path.join("/mnt/storage/uploads/", filename)
+    filename = f"screenr_{timestamp}.png"
+    output_path = os.path.join("/mnt/storage/uploads", filename)
 
     # Ensure the 'static' directory exists.
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -133,16 +133,16 @@ async def archive():
 
     if success:
         message = f"Successfully archived {url}."
-        image_url = f"/static/{filename}"
+        image_url = output_path
         return render_template_string(HTML_TEMPLATE, message=message, message_type="success", image_url=image_url)
     else:
         message = f"Failed to archive {url}. Please check the URL and try again."
         return render_template_string(HTML_TEMPLATE, message=message, message_type="error")
 
-@app.route("/static/<path:filename>")
+@app.route("/mnt/storage/uploads/<path:filename>")
 def serve_static(filename):
     """Serves the static files (screenshots) from the 'static' directory."""
-    return send_file(os.path.join("static", filename))
+    return send_file(os.path.join("/mnt/storage/uploads", filename))
 
 if __name__ == "__main__":
     # Note: Flask's built-in server is not for production.
