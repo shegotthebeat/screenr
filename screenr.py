@@ -124,7 +124,7 @@ async def archive():
     # Generate a unique filename based on the current timestamp.
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
     filename = f"screenshot_{timestamp}.png"
-    output_path = os.path.join("static", filename)
+    output_path = os.path.join("/mnt/storage/uploads/", filename)
 
     # Ensure the 'static' directory exists.
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
