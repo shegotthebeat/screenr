@@ -8,31 +8,19 @@
 # This script uses Flask to create a web server and Playwright
 # to take a full-page screenshot of a user-submitted URL.
 #
-# The application has two main routes:
-# - `/`: Serves the HTML form for URL submission.
-# - `/archive`: Receives the URL, launches a headless browser,
-#   and saves the screenshot. It then displays the result.
-#
-# To run this script:
-# 1. Ensure you have Python installed.
-# 2. Create a virtual environment and install the requirements:
-#    pip install -r requirements.txt
-# 3. Install the browser binaries for Playwright:
-#    playwright install
-# 4. Create a `static` directory in the same location as this script.
-# 5. Place your `style.css` file inside the `static` directory.
-# 6. Run the script:
-#    python your_script_name.py
-# 7. Access the application in your browser at http://127.0.0.1:8002
+# http://127.0.0.1:8002
 # -------------------------------------------------------------
 
 import asyncio
 from playwright.async_api import async_playwright
-from flask import Flask, render_template_string, request, send_file
+from flask import Flask, render_template_string, request, send_file, abort
 import os
 from datetime import datetime
 
 app = Flask(__name__)
+
+# Configuration - you can move this to a config file
+UPLOAD_DIRECTORY = "/mnt/storage/uploads"
 
 async def save_webpage_as_image(url: str, output_path: str):
     """
@@ -56,7 +44,7 @@ async def save_webpage_as_image(url: str, output_path: str):
         print(f"An error occurred: {e}")
         return False
 
-# HTML content for the main page, now linking to an external CSS file.
+# HTML content for the main page
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
@@ -124,28 +112,45 @@ async def archive():
     # Generate a unique filename based on the current timestamp.
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
     filename = f"screenr_{timestamp}.png"
-    output_path = os.path.join("/mnt/storage/uploads", filename)
+    output_path = os.path.join(UPLOAD_DIRECTORY, filename)
 
-    # Ensure the 'static' directory exists.
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    # Ensure the upload directory exists.
+    os.makedirs(UPLOAD_DIRECTORY, exist_ok=True)
 
     success = await save_webpage_as_image(url, output_path)
 
     if success:
         message = f"Successfully archived {url}."
-        image_url = output_path
+        # Create a clean URL path for the image
+        image_url = f"/uploads/{filename}"
         return render_template_string(HTML_TEMPLATE, message=message, message_type="success", image_url=image_url)
     else:
         message = f"Failed to archive {url}. Please check the URL and try again."
         return render_template_string(HTML_TEMPLATE, message=message, message_type="error")
 
-@app.route("/mnt/storage/uploads/<path:filename>")
-def serve_static(filename):
-    """Serves the static files (screenshots) from the 'static' directory."""
-    return send_file(os.path.join("/mnt/storage/uploads", filename))
+@app.route("/uploads/<filename>")
+def serve_upload(filename):
+    """Serves uploaded files from the external storage directory."""
+    try:
+        # Security: Prevent directory traversal attacks
+        if '..' in filename or filename.startswith('/'):
+            abort(403)
+        
+        file_path = os.path.join(UPLOAD_DIRECTORY, filename)
+        
+        # Check if file exists
+        if not os.path.exists(file_path):
+            abort(404)
+            
+        return send_file(file_path)
+    except Exception as e:
+        print(f"Error serving file {filename}: {e}")
+        abort(500)
 
 if __name__ == "__main__":
+    # Ensure upload directory exists on startup
+    os.makedirs(UPLOAD_DIRECTORY, exist_ok=True)
+    
     # Note: Flask's built-in server is not for production.
     # For production, use a WSGI server like Gunicorn or Waitress.
     app.run(host="0.0.0.0", port=8002, debug=True)
-
