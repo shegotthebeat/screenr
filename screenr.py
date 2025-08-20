@@ -42,7 +42,7 @@ HTML_TEMPLATE = """
 </head>
 <body>
   <div class="container">
-    <div class="sidebar"><h1>Web Archiver</h1></div>
+    <div class="sidebar"><h1>Web Archiver(er)</h1></div>
     <div class="content">
       <h2 class="page-title">Archive a Webpage</h2>
       <form action="/archive" method="post">
